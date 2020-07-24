@@ -1,0 +1,147 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Zerahny Chew"
+date: "7/24/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Overview
+
+In this assignment, multiple prediction models will be used to predict the manner of exercise of several participants based on the dataset collected. The dataset used in this project is a courtesy of “Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers’ Data Classification of Body Postures and Movements”. These information were collected through accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. This project was built up in RStudio, using its knitr functions, meant to be published in html format.
+
+## Loading the libraries and dataset
+
+The various libraries that will be used are first initialized.  
+```{r}
+rm(list=ls())                # free up memory for the download of the data sets
+library(knitr)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+library(corrplot)
+library(e1071)
+library(gbm)
+set.seed(12345)
+```
+
+## Loading and cleaning the dataset
+
+In the dataset there were many NA values which will intefere with the results of this analysis, therefor a data preprocessing step is taken to remove them.
+```{r}
+# set the URL for the download
+UrlTrain <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+UrlTest  <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+# download the datasets
+training <- read.csv(url(UrlTrain))
+testing  <- read.csv(url(UrlTest))
+
+# create a partition with the training dataset 
+inTrain  <- createDataPartition(training$classe, p=0.7, list=FALSE)
+TrainSet <- training[inTrain, ]
+TestSet  <- training[-inTrain, ]
+dim(TrainSet)
+dim(TestSet)
+
+# remove variables with Nearly Zero Variance
+NZV <- nearZeroVar(TrainSet)
+TrainSet <- TrainSet[, -NZV]
+TestSet  <- TestSet[, -NZV]
+dim(TrainSet)
+
+# remove variables that are mostly NA
+AllNA    <- sapply(TrainSet, function(x) mean(is.na(x))) > 0.95
+TrainSet <- TrainSet[, AllNA==FALSE]
+TestSet  <- TestSet[, AllNA==FALSE]
+dim(TrainSet)
+dim(TestSet)
+```
+
+It can be seen that the dimensions of the dataset have changed after the removal of variables that contain NA. Based on observation of the dataset, it was also found that the first five variables do not contain information that are useful for prediction of exercise manner. Hence, these variables will be removed.  
+
+```{r}
+TrainSet <- TrainSet[, -c(1:5)]
+TestSet <- TestSet[, -c(1:5)]
+```
+
+After the cleaning process, it can be seen that the number of variables have been reduced and these are considered to be able to explain the manner of exercise being carried out.  
+
+## Correlation Analysis
+A correlation among variables is analysed before proceeding to the modeling procedures.  
+
+```{r}
+corMatrix <- cor(TrainSet[, -54])
+corrplot(corMatrix, order = "FPC", method = "color", type = "lower", 
+         tl.cex = 0.8, tl.col = rgb(0, 0, 0))
+```
+
+The highly correlated variables are shown in dark colors in the graph above.  
+
+## Prediction Model Building
+
+Three models will be used which are Random Forest, Decision Tree and Generalized Boosted Model. These models will be trained with the processed train dataset and a confusion matrix will be plotted for each model. A comparison will be made among them in terms of accuracy. 
+
+### 1) Random Forest
+```{r}
+# model fit
+set.seed(12345)
+controlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modFitRandForest <- train(classe ~ ., data=TrainSet, method="rf",
+                          trControl=controlRF)
+# prediction on Test dataset
+predictRandForest <- predict(modFitRandForest, newdata=TestSet)
+testsetfactor <- as.factor(TestSet$classe)
+confMatRandForest <- confusionMatrix(predictRandForest, testsetfactor)
+confMatRandForest
+# plot matrix results
+plot(confMatRandForest$table, col = confMatRandForest$byClass, 
+     main = paste("Random Forest - Accuracy =",
+                  round(confMatRandForest$overall['Accuracy'], 4)))
+```
+### 2) Decision Trees
+```{r}
+# model fit
+set.seed(12345)
+modFitDecTree <- rpart(classe ~ ., data=TrainSet, method="class")
+fancyRpartPlot(modFitDecTree)
+# prediction on Test dataset
+predictDecTree <- predict(modFitDecTree, newdata=TestSet, type="class")
+testsetfactor <- as.factor(TestSet$classe)
+confMatDecTree <- confusionMatrix(predictDecTree, testsetfactor)
+confMatDecTree
+# plot matrix results
+plot(confMatDecTree$table, col = confMatDecTree$byClass, 
+     main = paste("Decision Tree - Accuracy =",
+                  round(confMatDecTree$overall['Accuracy'], 4)))
+```
+### 3) Generalized Boosted Model
+```{r}
+# model fit
+set.seed(12345)
+controlGBM <- trainControl(method = "repeatedcv", number = 5, repeats = 1)
+modFitGBM  <- train(classe ~ ., data=TrainSet, method = "gbm",
+                    trControl = controlGBM, verbose = FALSE)
+# prediction on Test dataset
+predictGBM <- predict(modFitGBM, newdata=TestSet)
+testsetfactor <- as.factor(TestSet$classe)
+confMatGBM <- confusionMatrix(predictGBM, testsetfactor)
+confMatGBM
+# plot matrix results
+plot(confMatGBM$table, col = confMatGBM$byClass, 
+     main = paste("GBM - Accuracy =", round(confMatGBM$overall['Accuracy'], 4)))
+```
+
+## Conclusion
+
+Based on the results above, Random Forest has the highest accuracy with Generalized Boosted Model being second while the Decision Trees Model lagged behind. Therefore, the Random Forest Model will be used.
+
+```{r}
+predictTEST <- predict(modFitRandForest, newdata=testing)
+predictTEST
+```
